@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-studio-bg text-white;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+
+  /* Selection */
+  ::selection {
+    @apply bg-accent-primary/30;
+  }
+}
+
+@layer components {
+  /* Glass morphism card */
+  .glass-card {
+    @apply bg-glass backdrop-blur-glass border border-studio-border rounded-xl shadow-glass;
+  }
+
+  .glass-card-hover {
+    @apply glass-card hover:bg-glass-hover hover:border-studio-border-strong transition-all duration-200;
+  }
+
+  /* Input styling */
+  .input-base {
+    @apply w-full bg-white/5 border border-studio-border rounded-lg px-4 py-2.5
+           text-white placeholder-white/40
+           focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/50
+           transition-all duration-200;
+  }
+
+  .input-dark {
+    @apply w-full bg-black/40 border border-studio-border rounded-lg px-4 py-2.5
+           text-white placeholder-white/40
+           focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary/50
+           transition-all duration-200;
+  }
+
+  /* Button variants */
+  .btn-primary {
+    @apply px-4 py-2 bg-accent-primary hover:bg-accent-primary/90
+           text-white font-medium rounded-lg
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-accent-primary/50
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-white/10 hover:bg-white/15
+           text-white font-medium rounded-lg border border-studio-border
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-white/20
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 hover:bg-white/5
+           text-white/70 hover:text-white font-medium rounded-lg
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-white/10
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 bg-accent-error/10 hover:bg-accent-error/20
+           text-accent-error font-medium rounded-lg border border-accent-error/20
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-accent-error/30
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Icon button */
+  .btn-icon {
+    @apply p-2 rounded-lg hover:bg-white/10 text-white/60 hover:text-white
+           transition-all duration-200;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply badge bg-accent-primary/20 text-accent-primary;
+  }
+
+  .badge-success {
+    @apply badge bg-accent-success/20 text-accent-success;
+  }
+
+  .badge-warning {
+    @apply badge bg-accent-warning/20 text-accent-warning;
+  }
+
+  .badge-error {
+    @apply badge bg-accent-error/20 text-accent-error;
+  }
+
+  /* Floating prompt bar */
+  .prompt-bar {
+    @apply fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl
+           bg-studio-surface/95 backdrop-blur-xl border border-studio-border
+           rounded-2xl shadow-glass p-4;
+  }
+
+  /* Panel styling */
+  .panel {
+    @apply bg-studio-surface border border-studio-border rounded-xl;
+  }
+
+  .panel-header {
+    @apply flex items-center justify-between px-4 py-3 border-b border-studio-border;
+  }
+
+  .panel-content {
+    @apply p-4;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply bg-white/5 animate-pulse rounded;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-studio-border;
+  }
+
+  /* Focus ring */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-accent-primary focus:ring-offset-2 focus:ring-offset-studio-bg;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-accent-primary to-accent-secondary bg-clip-text text-transparent;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
