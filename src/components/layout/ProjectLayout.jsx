@@ -7,6 +7,7 @@ import {
   Video,
   Mic2,
   Layers,
+  Box,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -19,6 +20,7 @@ const navItems = [
   { path: 'visuals', icon: Image, label: 'Visuals' },
   { path: 'video', icon: Video, label: 'Video' },
   { path: 'voice', icon: Mic2, label: 'Voice' },
+  { path: 'camera', icon: Box, label: 'Camera 3D' },
   { path: 'assembly', icon: Layers, label: 'Assembly' },
 ]
 

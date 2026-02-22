@@ -15,6 +15,7 @@ import { VideoPage } from './components/video'
 import { VoicePage } from './components/voice'
 import { AssemblyPage } from './components/assembly'
 import { SettingsPage } from './components/settings'
+import { CameraExplorerPage } from './components/camera-explorer'
 
 export default function App() {
   // Initialize IndexedDB on app start
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="video" element={<VideoPage />} />
           <Route path="voice" element={<VoicePage />} />
           <Route path="assembly" element={<AssemblyPage />} />
+          <Route path="camera" element={<CameraExplorerPage />} />
         </Route>
 
         {/* Catch-all redirect */}

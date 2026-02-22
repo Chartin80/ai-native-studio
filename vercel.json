@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "api/reconstruct.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/reconstruct",
+      "methods": ["POST", "OPTIONS"],
+      "headers": {
+        "Access-Control-Allow-Origin": "*"
+      }
+    }
+  ]
+}

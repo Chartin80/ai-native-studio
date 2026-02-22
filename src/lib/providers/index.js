@@ -116,3 +116,4 @@ export const aiService = {
 
 export { WavespeedProvider } from './wavespeed'
 export { MockProvider } from './mock'
+export { ModalProvider, modalProvider } from './modal'

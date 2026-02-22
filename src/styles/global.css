@@ -188,4 +188,21 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  /* Indeterminate progress animation */
+  .animate-progress-indeterminate {
+    animation: progress-indeterminate 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(200%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
 }
