@@ -120,6 +120,33 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     }
   }, [selectedLens])
 
+  // Inspect PLY file format
+  const inspectPlyFile = async (url) => {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const text = await blob.slice(0, 2000).text() // Read first 2KB as text
+
+      console.log('=== PLY File Header ===')
+      console.log(text)
+
+      // Check for Gaussian Splat properties
+      const hasGaussianProps = text.includes('f_dc_0') || text.includes('scale_0') || text.includes('rot_0')
+      const hasOpacity = text.includes('opacity')
+      const vertexMatch = text.match(/element vertex (\d+)/)
+      const vertexCount = vertexMatch ? parseInt(vertexMatch[1]) : 0
+
+      console.log('Has Gaussian properties:', hasGaussianProps)
+      console.log('Has opacity:', hasOpacity)
+      console.log('Vertex count:', vertexCount)
+
+      return { hasGaussianProps, hasOpacity, vertexCount, header: text }
+    } catch (e) {
+      console.error('Failed to inspect PLY:', e)
+      return null
+    }
+  }
+
   // Initialize viewer using DropInViewer for simplicity
   useEffect(() => {
     if (!containerRef.current || !plyUrl) return
@@ -134,13 +161,29 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     console.log('=== GaussianSplatViewer Debug ===')
     console.log('PLY URL:', plyUrl.substring(0, 100) + '...')
     console.log('Container size:', container.clientWidth, 'x', container.clientHeight)
-    setDebugInfo('Initializing viewer...')
+    setDebugInfo('Inspecting PLY format...')
+
+    // First inspect the PLY file to understand its format
+    inspectPlyFile(plyUrl).then((info) => {
+      if (info) {
+        if (!info.hasGaussianProps) {
+          setDebugInfo(`PLY has ${info.vertexCount} vertices but NO Gaussian Splat properties. Format incompatible.`)
+          setLoadError('PLY file is not in Gaussian Splat format. ml-sharp may output a different format.')
+          setIsLoading(false)
+          return
+        }
+        setDebugInfo(`PLY has ${info.vertexCount} Gaussian splats. Loading...`)
+      }
+    })
 
     // Build the load URL - append .ply hint for blob URLs
     let loadUrl = plyUrl
     if (plyUrl.startsWith('blob:')) {
-      loadUrl = plyUrl + '#scene.ply'
+      // Use hash fragment, not query string
+      loadUrl = plyUrl + '#.ply'
     }
+
+    console.log('Final load URL:', loadUrl)
 
     try {
       // Use DropInViewer - simpler and more reliable
@@ -151,8 +194,8 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
         sphericalHarmonicsDegree: 0,  // Start with 0 for compatibility
         // Compatibility
         sharedMemoryForWorkers: false,
-        // Initial camera
-        initialCameraPosition: [0, 1, 5],
+        // Initial camera - start further back
+        initialCameraPosition: [0, 0, 10],
         initialCameraLookAt: [0, 0, 0],
       })
 
@@ -165,7 +208,7 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
       viewer.addSplatScenes([{
         path: loadUrl,
         format: GaussianSplats3D.SceneFormat.Ply,
-        splatAlphaRemovalThreshold: 5,
+        splatAlphaRemovalThreshold: 1, // Lower = keep more splats
       }])
         .then(() => {
           console.log('Splat scene added successfully!')
@@ -178,6 +221,15 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
             const count = viewer.viewer.splatMesh?.getSplatCount?.() || 0
             console.log('Splat count:', count)
             setSplatCount(count)
+
+            // Also log the scene bounds
+            const mesh = viewer.viewer.splatMesh
+            if (mesh && mesh.geometry) {
+              mesh.geometry.computeBoundingSphere()
+              const sphere = mesh.geometry.boundingSphere
+              console.log('Scene center:', sphere?.center)
+              console.log('Scene radius:', sphere?.radius)
+            }
 
             if (count === 0) {
               setDebugInfo('Warning: 0 splats loaded - PLY may be empty or incompatible')
@@ -307,6 +359,19 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
             <div className="text-accent-primary">
               Splats: {splatCount.toLocaleString()}
             </div>
+          )}
+          {plyUrl && (
+            <button
+              onClick={() => {
+                const a = document.createElement('a')
+                a.href = plyUrl
+                a.download = 'scene.ply'
+                a.click()
+              }}
+              className="text-blue-400 hover:text-blue-300 underline pointer-events-auto"
+            >
+              Download PLY
+            </button>
           )}
         </div>
       )}
