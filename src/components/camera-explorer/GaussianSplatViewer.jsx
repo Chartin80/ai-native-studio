@@ -21,6 +21,7 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [debugInfo, setDebugInfo] = useState('')
+  const [splatCount, setSplatCount] = useState(0)
 
   const {
     selectedLens,
@@ -119,113 +120,93 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     }
   }, [selectedLens])
 
-  // Initialize viewer
+  // Initialize viewer using DropInViewer for simplicity
   useEffect(() => {
     if (!containerRef.current || !plyUrl) return
 
     setIsLoading(true)
     setLoadError(null)
+    setSplatCount(0)
 
     const container = containerRef.current
-    const width = container.clientWidth
-    const height = container.clientHeight
 
     // Debug: log PLY URL type
-    console.log('Loading PLY from:', plyUrl.substring(0, 50) + '...')
-    setDebugInfo(`Loading scene...`)
+    console.log('=== GaussianSplatViewer Debug ===')
+    console.log('PLY URL:', plyUrl.substring(0, 100) + '...')
+    console.log('Container size:', container.clientWidth, 'x', container.clientHeight)
+    setDebugInfo('Initializing viewer...')
 
-    // Create GaussianSplats3D viewer
-    // Note: The viewer creates its own renderer and camera internally
+    // Build the load URL - append .ply hint for blob URLs
+    let loadUrl = plyUrl
+    if (plyUrl.startsWith('blob:')) {
+      loadUrl = plyUrl + '#scene.ply'
+    }
+
     try {
-      const viewer = new GaussianSplats3D.Viewer({
-        // Start camera further back to see the full scene
-        cameraUp: [0, 1, 0],
-        initialCameraPosition: [0, 0, 5],   // Further back
-        initialCameraLookAt: [0, 0, 0],     // Look at origin
-
-        // Rendering quality
-        antialiased: true,
-        sphericalHarmonicsDegree: 2,
-
-        // Compatibility settings
+      // Use DropInViewer - simpler and more reliable
+      const viewer = new GaussianSplats3D.DropInViewer({
+        // Use progressive loading for better UX
+        progressiveLoad: true,
+        // Quality settings
+        sphericalHarmonicsDegree: 0,  // Start with 0 for compatibility
+        // Compatibility
         sharedMemoryForWorkers: false,
-
-        // Controls
-        selfDrivenMode: true,
-        useBuiltInControls: true,
-
-        // Render settings
-        gpuAcceleratedSort: true,
-
-        // Enable preserveDrawingBuffer for screenshot capture
-        renderMode: GaussianSplats3D.RenderMode.Always,
+        // Initial camera
+        initialCameraPosition: [0, 1, 5],
+        initialCameraLookAt: [0, 0, 0],
       })
+
       viewerRef.current = viewer
 
-      // Get the renderer and camera from the viewer
+      // Add the splat scene
+      console.log('Adding splat scene from:', loadUrl)
+      setDebugInfo('Loading splat data...')
+
+      viewer.addSplatScenes([{
+        path: loadUrl,
+        format: GaussianSplats3D.SceneFormat.Ply,
+        splatAlphaRemovalThreshold: 5,
+      }])
+        .then(() => {
+          console.log('Splat scene added successfully!')
+
+          // Get references after loading
+          if (viewer.viewer) {
+            rendererRef.current = viewer.viewer.renderer
+            cameraRef.current = viewer.viewer.camera
+
+            const count = viewer.viewer.splatMesh?.getSplatCount?.() || 0
+            console.log('Splat count:', count)
+            setSplatCount(count)
+
+            if (count === 0) {
+              setDebugInfo('Warning: 0 splats loaded - PLY may be empty or incompatible')
+            } else {
+              setDebugInfo(`Loaded ${count.toLocaleString()} splats. Use mouse to navigate.`)
+            }
+          }
+
+          setIsLoading(false)
+        })
+        .catch((error) => {
+          console.error('Failed to add splat scene:', error)
+          setLoadError(error.message || 'Failed to load splat scene')
+          setDebugInfo(`Load error: ${error.message}`)
+          setIsLoading(false)
+        })
+
+      // Mount to container
+      container.appendChild(viewer.renderer.domElement)
+
+      // Store refs immediately (before scene loads)
       rendererRef.current = viewer.renderer
       cameraRef.current = viewer.camera
 
-      // Mount viewer's renderer to container (only one canvas!)
-      container.appendChild(viewer.renderer.domElement)
-      viewer.renderer.setSize(width, height)
-      viewer.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      console.log('Viewer mounted to container')
 
-      // Configure orbit controls
-      if (viewer.controls) {
-        viewer.controls.enableDamping = true
-        viewer.controls.dampingFactor = 0.1
-        viewer.controls.rotateSpeed = 0.5
-        viewer.controls.zoomSpeed = 1.2
-        viewer.controls.panSpeed = 0.8
-        viewer.controls.enablePan = true
-      }
-
-      setDebugInfo('Loading 3D scene...')
-
-      // Load PLY file - specify format explicitly for blob URLs
-      const loadOptions = {
-        splatAlphaRemovalThreshold: 5,  // Lower = more splats visible
-        showLoadingUI: false,
-        format: GaussianSplats3D.SceneFormat.Ply,
-        position: [0, 0, 0],
-        rotation: [0, 0, 0, 1],
-        scale: [1, 1, 1],
-      }
-
-      // If blob URL, we need to add .ply hint for the library
-      let loadUrl = plyUrl
-      if (plyUrl.startsWith('blob:')) {
-        loadUrl = plyUrl + '#scene.ply'
-      }
-
-      console.log('Loading with URL:', loadUrl)
-
-      viewer
-        .addSplatScene(loadUrl, loadOptions)
-        .then(() => {
-          console.log('PLY loaded successfully')
-          console.log('Splat count:', viewer.splatMesh?.getSplatCount?.() || 'unknown')
-          setDebugInfo('Use mouse to orbit, scroll to zoom, right-click to pan')
-          setIsLoading(false)
-
-          // Start rendering
-          viewer.start()
-
-          // Log camera position for debugging
-          if (viewer.camera) {
-            console.log('Camera position:', viewer.camera.position)
-          }
-        })
-        .catch((error) => {
-          console.error('Failed to load PLY:', error)
-          setLoadError(error.message || 'Failed to load 3D scene')
-          setDebugInfo(`Error: ${error.message}`)
-          setIsLoading(false)
-        })
     } catch (error) {
       console.error('Failed to create viewer:', error)
-      setLoadError(error.message || 'Failed to create 3D viewer')
+      setLoadError(error.message || 'Failed to create viewer')
       setDebugInfo(`Viewer error: ${error.message}`)
       setIsLoading(false)
     }
@@ -250,24 +231,9 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     }
     updateCameraState()
 
-    // Handle resize - use viewer's renderer and camera
-    const handleResize = () => {
-      if (!containerRef.current || !viewerRef.current) return
-      const w = containerRef.current.clientWidth
-      const h = containerRef.current.clientHeight
-      if (viewerRef.current.renderer) {
-        viewerRef.current.renderer.setSize(w, h)
-      }
-      if (viewerRef.current.camera) {
-        viewerRef.current.camera.aspect = w / h
-        viewerRef.current.camera.updateProjectionMatrix()
-      }
-    }
-    window.addEventListener('resize', handleResize)
-
     // Cleanup
     return () => {
-      window.removeEventListener('resize', handleResize)
+      console.log('Cleaning up viewer...')
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
@@ -334,9 +300,14 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
       {showHUD && !isLoading && !loadError && <CameraHUD />}
 
       {/* Debug Info */}
-      {debugInfo && (
-        <div className="absolute top-2 left-2 bg-black/80 text-white/60 text-xs px-2 py-1 rounded font-mono">
-          {debugInfo}
+      {(debugInfo || splatCount > 0) && (
+        <div className="absolute top-2 left-2 bg-black/80 text-white/60 text-xs px-2 py-1 rounded font-mono space-y-1">
+          {debugInfo && <div>{debugInfo}</div>}
+          {splatCount > 0 && (
+            <div className="text-accent-primary">
+              Splats: {splatCount.toLocaleString()}
+            </div>
+          )}
         </div>
       )}
     </div>
