@@ -5,6 +5,7 @@
  */
 
 const BASE_URL = 'https://api.wavespeed.ai/api/v2'
+const BASE_URL_V3 = 'https://api.wavespeed.ai/api/v3'
 const WAVESPEED_API_KEY = 'df60bb6a3229d10abe24f8947d49c43aa93102628557fc33a31980c9c662dc3e'
 
 export class WavespeedProvider {
@@ -262,7 +263,7 @@ export class WavespeedProvider {
       throw new Error('Wavespeed API key not configured')
     }
 
-    const response = await fetch(`${BASE_URL}/wavespeed-ai/nano-banana-pro-edit`, {
+    const response = await fetch(`${BASE_URL_V3}/google/nano-banana-pro/edit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
