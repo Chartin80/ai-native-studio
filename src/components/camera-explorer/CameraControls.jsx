@@ -29,7 +29,7 @@ export function CameraControls() {
         <label className="block text-sm font-medium text-white/80 mb-2">
           Lens Preset
         </label>
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-6 gap-1">
           {LENS_OPTIONS.map((lens) => (
             <button
               key={lens.id}

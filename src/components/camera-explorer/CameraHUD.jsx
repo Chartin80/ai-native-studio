@@ -60,23 +60,21 @@ export function CameraHUD() {
 
         {/* Controls Help */}
         <div className="bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-xs">
-          <div className="text-white/50 mb-1 font-medium">Mouse Controls</div>
+          <div className="text-white/50 mb-1 font-medium">Camera Controls</div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2">
-            <span className="text-white/40">Left drag</span>
-            <span className="text-white/60">Orbit</span>
-            <span className="text-white/40">Right drag</span>
-            <span className="text-white/60">Pan</span>
+            <span className="text-white/40">Drag</span>
+            <span className="text-white/60">Look around</span>
             <span className="text-white/40">Scroll</span>
-            <span className="text-white/60">Zoom</span>
+            <span className="text-white/60">Height</span>
+            <span className="text-white/40">Arrows</span>
+            <span className="text-white/60">Move</span>
           </div>
           <div className="text-white/50 mb-1 font-medium">Keyboard</div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-            <span className="text-white/40">1-5</span>
+            <span className="text-white/40">1-6</span>
             <span className="text-white/60">Lens</span>
             <span className="text-white/40">Space</span>
             <span className="text-white/60">Capture</span>
-            <span className="text-white/40">G</span>
-            <span className="text-white/60">Grid</span>
             <span className="text-white/40">R</span>
             <span className="text-white/60">Reset</span>
           </div>

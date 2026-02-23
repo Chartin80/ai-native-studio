@@ -4,13 +4,21 @@
  */
 
 export const LENS_PRESETS = {
+  '12mm': {
+    focalLength: 12,
+    fovHorizontal: 122.0,
+    fovVertical: 90.0,
+    name: 'Fisheye',
+    description: 'Extreme wide, see entire room',
+    shortcut: '1',
+  },
   '24mm': {
     focalLength: 24,
     fovHorizontal: 84.1,
     fovVertical: 53.1,
     name: 'Ultra Wide',
     description: 'Dramatic perspective, environmental context',
-    shortcut: '1',
+    shortcut: '2',
   },
   '35mm': {
     focalLength: 35,
@@ -18,7 +26,7 @@ export const LENS_PRESETS = {
     fovVertical: 37.8,
     name: 'Wide',
     description: 'Natural perspective, street photography',
-    shortcut: '2',
+    shortcut: '3',
   },
   '50mm': {
     focalLength: 50,
@@ -26,7 +34,7 @@ export const LENS_PRESETS = {
     fovVertical: 27.0,
     name: 'Normal',
     description: 'Human eye equivalent, neutral distortion',
-    shortcut: '3',
+    shortcut: '4',
   },
   '85mm': {
     focalLength: 85,
@@ -34,7 +42,7 @@ export const LENS_PRESETS = {
     fovVertical: 16.1,
     name: 'Portrait',
     description: 'Flattering compression, subject isolation',
-    shortcut: '4',
+    shortcut: '5',
   },
   '135mm': {
     focalLength: 135,
@@ -42,7 +50,7 @@ export const LENS_PRESETS = {
     fovVertical: 10.2,
     name: 'Telephoto',
     description: 'Strong compression, cinematic isolation',
-    shortcut: '5',
+    shortcut: '6',
   },
 }
 

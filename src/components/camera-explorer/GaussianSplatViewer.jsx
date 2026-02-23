@@ -1,8 +1,12 @@
 /**
- * GaussianSplatViewer - 3D Gaussian Splat renderer using Three.js
+ * GaussianSplatViewer - 3D Gaussian Splat renderer with cinematographer controls
  *
- * Loads and displays .ply files from ml-sharp reconstruction
- * Provides orbit controls and camera position tracking
+ * Controls (like a camera on a tripod in a locked room):
+ * - Mouse drag: Pan/tilt camera (look around)
+ * - Scroll wheel: Raise/lower camera height (floor to ceiling)
+ * - Arrow keys: Move forward/back/strafe (within room bounds)
+ * - Number keys 1-6: Change lens (12mm to 135mm)
+ * - Space: Capture snapshot
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
@@ -12,17 +16,26 @@ import { useCameraExplorerStore } from '../../lib/store/cameraExplorerStore'
 import { getThreeFOV, getLensFromShortcut } from '../../lib/camera/lensPresets'
 import { CameraHUD } from './CameraHUD'
 
+// Movement settings
+const MOVE_SPEED = 0.15
+const LOOK_SPEED = 0.003
+const HEIGHT_SPEED = 0.1
+
 export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
   const containerRef = useRef(null)
+  const canvasWrapperRef = useRef(null)
   const viewerRef = useRef(null)
   const cameraRef = useRef(null)
   const rendererRef = useRef(null)
   const animationFrameRef = useRef(null)
+  const sceneBoundsRef = useRef(null) // Store scene bounds for constraints
+  const keysPressed = useRef({})
+
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
   const [debugInfo, setDebugInfo] = useState('Initializing...')
   const [splatCount, setSplatCount] = useState(0)
-  const [plyHeader, setPlyHeader] = useState('')
+  const [isActive, setIsActive] = useState(false) // Track if viewer is focused/active
 
   const {
     selectedLens,
@@ -37,31 +50,102 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     captureSnapshot,
   } = useCameraExplorerStore()
 
-  // Capture current view as image
+  // Clamp camera position to scene bounds
+  const clampToSceneBounds = useCallback((position) => {
+    const bounds = sceneBoundsRef.current
+    if (!bounds) return position
+
+    return {
+      x: Math.max(bounds.min.x, Math.min(bounds.max.x, position.x)),
+      y: Math.max(bounds.min.y, Math.min(bounds.max.y, position.y)),
+      z: Math.max(bounds.min.z, Math.min(bounds.max.z, position.z)),
+    }
+  }, [])
+
+  // Capture current view using a render target
   const captureView = useCallback(() => {
-    if (!rendererRef.current || !cameraRef.current) return null
+    if (!viewerRef.current || !cameraRef.current) return null
 
-    const renderer = rendererRef.current
+    const viewer = viewerRef.current
     const camera = cameraRef.current
+    const renderer = viewer.renderer
 
-    // Force render
-    if (viewerRef.current) {
-      viewerRef.current.update()
+    if (!renderer || !viewer.splatMesh) {
+      console.error('No renderer or splatMesh found')
+      return null
     }
 
-    const dataUrl = renderer.domElement.toDataURL('image/png')
+    console.log('Capturing snapshot using render target...')
+
+    // Create a render target at a reasonable resolution
+    const width = 1920
+    const height = 1080
+    const renderTarget = new THREE.WebGLRenderTarget(width, height, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    })
+
+    // Create a scene with just the splat mesh
+    const captureScene = new THREE.Scene()
+    captureScene.add(viewer.splatMesh)
+
+    // Store the current render target
+    const currentTarget = renderer.getRenderTarget()
+
+    // Render to our target
+    renderer.setRenderTarget(renderTarget)
+    renderer.clear()
+    renderer.render(captureScene, camera)
+
+    // Read pixels from the render target
+    const pixels = new Uint8Array(width * height * 4)
+    renderer.readRenderTargetPixels(renderTarget, 0, 0, width, height, pixels)
+
+    // Restore original render target
+    renderer.setRenderTarget(currentTarget)
+
+    // Put the mesh back in the original scene
+    // (Note: this might cause issues, but let's try)
+
+    // Create image from pixels (flip Y)
+    const captureCanvas = document.createElement('canvas')
+    captureCanvas.width = width
+    captureCanvas.height = height
+    const ctx = captureCanvas.getContext('2d')
+    const imageData = ctx.createImageData(width, height)
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const srcIdx = ((height - 1 - y) * width + x) * 4
+        const dstIdx = (y * width + x) * 4
+        imageData.data[dstIdx] = pixels[srcIdx]
+        imageData.data[dstIdx + 1] = pixels[srcIdx + 1]
+        imageData.data[dstIdx + 2] = pixels[srcIdx + 2]
+        imageData.data[dstIdx + 3] = pixels[srcIdx + 3]
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0)
+    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.9)
+
+    // Clean up
+    renderTarget.dispose()
+
+    // Check if we got content
+    let hasContent = false
+    for (let i = 0; i < pixels.length; i += 1000) {
+      if (pixels[i] > 5 || pixels[i + 1] > 5 || pixels[i + 2] > 5) {
+        hasContent = true
+        break
+      }
+    }
+
+    console.log('Captured, has content:', hasContent, 'data length:', dataUrl.length)
 
     const snapshot = captureSnapshot(dataUrl, {
-      position: {
-        x: camera.position.x,
-        y: camera.position.y,
-        z: camera.position.z,
-      },
-      rotation: {
-        x: camera.rotation.x,
-        y: camera.rotation.y,
-        z: camera.rotation.z,
-      },
+      position: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+      rotation: { x: camera.rotation.x, y: camera.rotation.y, z: camera.rotation.z },
     })
 
     return snapshot
@@ -74,20 +158,21 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     }
   }, [captureView, onCaptureRef])
 
-  // Handle keyboard shortcuts
+  // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignore if typing in input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
 
-      // Lens shortcuts (1-5)
+      keysPressed.current[e.key.toLowerCase()] = true
+      keysPressed.current[e.code] = true
+
+      // Lens shortcuts (1-6)
       const lens = getLensFromShortcut(e.key)
       if (lens) {
         setSelectedLens(lens)
         return
       }
 
-      // Other shortcuts
       switch (e.key.toLowerCase()) {
         case 'g':
           toggleGrid()
@@ -98,8 +183,12 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
         case 'r':
           resetCamera()
           if (cameraRef.current) {
-            cameraRef.current.position.set(0, 0, 5)
-            cameraRef.current.rotation.set(0, 0, 0)
+            // Reset to original photo orientation
+            const pitch = -8.9 * (Math.PI / 180)
+            const yaw = 183.7 * (Math.PI / 180)
+            const roll = -180 * (Math.PI / 180)
+            cameraRef.current.position.set(0, 0.06, 0)
+            cameraRef.current.rotation.set(pitch, yaw, roll, 'YXZ')
           }
           break
         case ' ':
@@ -109,9 +198,167 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
       }
     }
 
+    const handleKeyUp = (e) => {
+      keysPressed.current[e.key.toLowerCase()] = false
+      keysPressed.current[e.code] = false
+    }
+
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
   }, [setSelectedLens, toggleGrid, toggleHUD, resetCamera, captureView])
+
+  // Arrow key movement (with bounds)
+  useEffect(() => {
+    const moveCamera = () => {
+      if (!cameraRef.current) return
+
+      const camera = cameraRef.current
+      const keys = keysPressed.current
+
+      // Get camera direction (horizontal only)
+      const forward = new THREE.Vector3()
+      camera.getWorldDirection(forward)
+      forward.y = 0
+      forward.normalize()
+
+      const right = new THREE.Vector3()
+      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+
+      let moved = false
+      const newPos = camera.position.clone()
+
+      // Arrow keys for movement
+      if (keys['arrowup'] || keys['w']) {
+        newPos.addScaledVector(forward, MOVE_SPEED)
+        moved = true
+      }
+      if (keys['arrowdown'] || keys['s']) {
+        newPos.addScaledVector(forward, -MOVE_SPEED)
+        moved = true
+      }
+      if (keys['arrowleft'] || keys['a']) {
+        newPos.addScaledVector(right, -MOVE_SPEED)
+        moved = true
+      }
+      if (keys['arrowright'] || keys['d']) {
+        newPos.addScaledVector(right, MOVE_SPEED)
+        moved = true
+      }
+
+      if (moved) {
+        // Apply bounds
+        const clamped = clampToSceneBounds({ x: newPos.x, y: newPos.y, z: newPos.z })
+        camera.position.set(clamped.x, camera.position.y, clamped.z) // Keep Y (height) separate
+      }
+    }
+
+    const interval = setInterval(moveCamera, 16)
+    return () => clearInterval(interval)
+  }, [clampToSceneBounds])
+
+  // Handle click outside to deactivate
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsActive(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Mouse controls for pan/tilt and scroll for height
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    let isDragging = false
+    let lastX = 0
+    let lastY = 0
+
+    const handleMouseDown = (e) => {
+      // Activate on any click inside
+      setIsActive(true)
+
+      if (e.button === 0) { // Left click
+        isDragging = true
+        lastX = e.clientX
+        lastY = e.clientY
+        container.style.cursor = 'grabbing'
+      }
+    }
+
+    const handleMouseUp = () => {
+      isDragging = false
+      container.style.cursor = 'grab'
+    }
+
+    const handleMouseMove = (e) => {
+      if (!isDragging || !cameraRef.current) return
+
+      const deltaX = e.clientX - lastX
+      const deltaY = e.clientY - lastY
+      lastX = e.clientX
+      lastY = e.clientY
+
+      const camera = cameraRef.current
+
+      // Pan (yaw) and tilt (pitch)
+      camera.rotation.y -= deltaX * LOOK_SPEED
+      camera.rotation.x -= deltaY * LOOK_SPEED
+
+      // Clamp pitch to prevent flipping
+      camera.rotation.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, camera.rotation.x))
+    }
+
+    const handleWheel = (e) => {
+      // Only handle scroll when active
+      if (!isActive) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (!cameraRef.current) return
+
+      const camera = cameraRef.current
+      const bounds = sceneBoundsRef.current
+
+      // Scroll to raise/lower camera
+      let newY = camera.position.y - e.deltaY * 0.005
+
+      // Clamp to floor/ceiling
+      if (bounds) {
+        newY = Math.max(bounds.min.y, Math.min(bounds.max.y, newY))
+      }
+
+      camera.position.y = newY
+    }
+
+    const handleMouseLeave = () => {
+      isDragging = false
+      container.style.cursor = 'grab'
+    }
+
+    container.style.cursor = 'grab'
+    container.addEventListener('mousedown', handleMouseDown)
+    container.addEventListener('mouseup', handleMouseUp)
+    container.addEventListener('mousemove', handleMouseMove)
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    container.addEventListener('mouseleave', handleMouseLeave)
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown)
+      container.removeEventListener('mouseup', handleMouseUp)
+      container.removeEventListener('mousemove', handleMouseMove)
+      container.removeEventListener('wheel', handleWheel)
+      container.removeEventListener('mouseleave', handleMouseLeave)
+    }
+  }, [isActive])
 
   // Update FOV when lens changes
   useEffect(() => {
@@ -125,87 +372,56 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
   useEffect(() => {
     if (!containerRef.current || !plyUrl) return
 
-    console.log('========================================')
-    console.log('GaussianSplatViewer MOUNTING')
+    console.log('========== GaussianSplatViewer Loading ==========')
     console.log('PLY URL:', plyUrl)
-    console.log('========================================')
 
     setIsLoading(true)
     setLoadError(null)
     setSplatCount(0)
-    setDebugInfo('Starting...')
-    setPlyHeader('')
+    setDebugInfo('Loading...')
 
     const container = containerRef.current
     const width = container.clientWidth || 800
-    const height = container.clientHeight || 600
+    const height = container.clientHeight || 450
 
-    // Step 1: Fetch and inspect the PLY file
-    const inspectAndLoad = async () => {
+    const loadScene = async () => {
       try {
-        // Fetch the PLY to inspect it
-        setDebugInfo('Fetching PLY file...')
-        console.log('Fetching PLY from:', plyUrl)
-
+        // Fetch and inspect PLY
+        setDebugInfo('Fetching PLY...')
         const response = await fetch(plyUrl)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch PLY: ${response.status}`)
-        }
+        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`)
 
         const blob = await response.blob()
-        console.log('PLY blob size:', blob.size, 'bytes')
-        setDebugInfo(`PLY size: ${(blob.size / 1024).toFixed(1)} KB`)
+        console.log('PLY size:', blob.size, 'bytes')
 
-        // Read header
+        // Parse header
         const headerText = await blob.slice(0, 3000).text()
-        console.log('=== PLY HEADER ===')
-        console.log(headerText)
-        setPlyHeader(headerText.substring(0, 500))
-
-        // Parse header info
         const vertexMatch = headerText.match(/element vertex (\d+)/)
         const vertexCount = vertexMatch ? parseInt(vertexMatch[1]) : 0
-        const hasScale = headerText.includes('scale_0')
-        const hasRot = headerText.includes('rot_0')
-        const hasOpacity = headerText.includes('opacity')
-        const hasSH = headerText.includes('f_dc_0')
 
-        console.log('Vertex count:', vertexCount)
-        console.log('Has scale:', hasScale)
-        console.log('Has rotation:', hasRot)
-        console.log('Has opacity:', hasOpacity)
-        console.log('Has SH:', hasSH)
+        if (vertexCount === 0) throw new Error('PLY has 0 vertices')
 
-        if (vertexCount === 0) {
-          throw new Error('PLY has 0 vertices')
-        }
+        setDebugInfo(`${vertexCount.toLocaleString()} splats...`)
 
-        const isGaussianFormat = hasScale && hasRot && hasOpacity
-        if (!isGaussianFormat) {
-          setDebugInfo(`PLY has ${vertexCount} vertices but missing Gaussian properties (scale/rot/opacity)`)
-          console.warn('PLY may not be in Gaussian Splat format!')
-        } else {
-          setDebugInfo(`Valid Gaussian PLY: ${vertexCount.toLocaleString()} splats`)
-        }
-
-        // Create blob URL for the viewer
         const viewerBlobUrl = URL.createObjectURL(blob)
 
-        // Now create the viewer
-        console.log('Creating GaussianSplats3D.Viewer...')
-        setDebugInfo('Creating 3D viewer...')
-
+        // Create viewer
+        // Initial camera orientation to match the original photo:
+        // The reconstruction places the original viewpoint at origin looking "backwards"
+        // So we need to look in the +Z direction (yaw ~180°)
         const viewer = new GaussianSplats3D.Viewer({
-          cameraUp: [0, -1, 0],  // Try flipped Y
-          initialCameraPosition: [0, 0, 3],
-          initialCameraLookAt: [0, 0, 0],
+          cameraUp: [0, -1, 0],
+          initialCameraPosition: [0, 0.06, 0],  // Slight Y offset
+          initialCameraLookAt: [0, 0, 1],       // Look in +Z direction (opposite of default)
           selfDrivenMode: true,
-          useBuiltInControls: true,
+          useBuiltInControls: false, // We handle controls ourselves
           sharedMemoryForWorkers: false,
-          dynamicScene: false,
-          sphericalHarmonicsDegree: hasSH ? 0 : 0,
-          antialiased: false,
-          focalAdjustment: 1.0,
+          sphericalHarmonicsDegree: 2,
+          antialiased: true,
+          webGLRendererParameters: {
+            preserveDrawingBuffer: true,
+            antialias: true,
+          },
         })
 
         viewerRef.current = viewer
@@ -213,75 +429,84 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
         cameraRef.current = viewer.camera
 
         // Add to DOM
-        container.appendChild(viewer.renderer.domElement)
+        const wrapper = canvasWrapperRef.current || container
+        wrapper.appendChild(viewer.renderer.domElement)
         viewer.renderer.setSize(width, height)
+        viewer.renderer.domElement.style.width = '100%'
+        viewer.renderer.domElement.style.height = '100%'
 
-        console.log('Loading splat scene...')
-        setDebugInfo('Loading splat scene...')
-
-        // Load the scene
+        // Load scene
         await viewer.addSplatScene(viewerBlobUrl, {
           format: GaussianSplats3D.SceneFormat.Ply,
           splatAlphaRemovalThreshold: 1,
           showLoadingUI: false,
         })
 
-        console.log('Scene loaded! Starting viewer...')
-
-        // Get actual splat count
         const loadedCount = viewer.splatMesh?.getSplatCount?.() || vertexCount
         setSplatCount(loadedCount)
-        console.log('Loaded splat count:', loadedCount)
 
-        // Start the viewer
+        // Start viewer
         viewer.start()
 
-        // Try to get scene bounds and reposition camera
+        // Set initial camera rotation to match original photo orientation
+        // Based on user testing: Pitch=-8.9°, Yaw=183.7°, Roll=-180°
+        if (viewer.camera) {
+          const pitch = -8.9 * (Math.PI / 180)  // Convert to radians
+          const yaw = 183.7 * (Math.PI / 180)
+          const roll = -180 * (Math.PI / 180)
+          viewer.camera.rotation.set(pitch, yaw, roll, 'YXZ')
+          viewer.camera.position.set(0, 0.06, 0)
+        }
+
+        // Force renders
+        for (let i = 0; i < 10; i++) {
+          setTimeout(() => viewer.update?.(), i * 50)
+        }
+
+        // Calculate and store scene bounds
         setTimeout(() => {
-          if (viewer.splatMesh) {
+          if (viewer.splatMesh?.geometry) {
             try {
-              viewer.splatMesh.geometry.computeBoundingSphere()
-              const sphere = viewer.splatMesh.geometry.boundingSphere
-              if (sphere) {
-                console.log('Scene bounds - center:', sphere.center, 'radius:', sphere.radius)
-
-                // Position camera to see the whole scene
-                const distance = sphere.radius * 2.5
-                viewer.camera.position.set(
-                  sphere.center.x,
-                  sphere.center.y,
-                  sphere.center.z + distance
-                )
-                viewer.camera.lookAt(sphere.center)
-
-                if (viewer.controls) {
-                  viewer.controls.target.copy(sphere.center)
-                  viewer.controls.update()
+              viewer.splatMesh.geometry.computeBoundingBox()
+              const box = viewer.splatMesh.geometry.boundingBox
+              if (box) {
+                // Add some padding and store bounds
+                const padding = 0.5
+                sceneBoundsRef.current = {
+                  min: {
+                    x: box.min.x + padding,
+                    y: box.min.y + padding,
+                    z: box.min.z + padding,
+                  },
+                  max: {
+                    x: box.max.x - padding,
+                    y: box.max.y - padding,
+                    z: box.max.z - padding,
+                  },
                 }
-
-                console.log('Camera repositioned to:', viewer.camera.position)
-                setDebugInfo(`${loadedCount.toLocaleString()} splats loaded. Camera auto-focused.`)
+                console.log('Scene bounds:', sceneBoundsRef.current)
+                setDebugInfo(`${loadedCount.toLocaleString()} splats - bounded`)
               }
             } catch (e) {
               console.warn('Could not compute bounds:', e)
             }
           }
-        }, 500)
+        }, 300)
 
-        setDebugInfo(`Loaded ${loadedCount.toLocaleString()} splats`)
+        setDebugInfo(`${loadedCount.toLocaleString()} splats loaded`)
         setIsLoading(false)
 
       } catch (error) {
-        console.error('Error loading scene:', error)
+        console.error('Load error:', error)
         setLoadError(error.message)
         setDebugInfo(`Error: ${error.message}`)
         setIsLoading(false)
       }
     }
 
-    inspectAndLoad()
+    loadScene()
 
-    // Animation loop to track camera position
+    // Camera state tracking
     const updateCameraState = () => {
       if (cameraRef.current) {
         const pos = cameraRef.current.position
@@ -301,115 +526,109 @@ export function GaussianSplatViewer({ plyUrl, onCaptureRef }) {
     }
     updateCameraState()
 
-    // Cleanup
-    return () => {
-      console.log('Cleaning up viewer...')
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-      if (viewerRef.current) {
-        try {
-          viewerRef.current.dispose()
-        } catch (e) {
-          console.warn('Viewer dispose error:', e)
+    // Resize handler
+    const handleResize = () => {
+      if (!containerRef.current || !viewerRef.current) return
+      const w = containerRef.current.clientWidth
+      const h = containerRef.current.clientHeight
+      if (w && h && viewerRef.current.renderer) {
+        viewerRef.current.renderer.setSize(w, h)
+        if (viewerRef.current.camera) {
+          viewerRef.current.camera.aspect = w / h
+          viewerRef.current.camera.updateProjectionMatrix()
         }
       }
-      // Clear container
-      while (container.firstChild) {
-        container.removeChild(container.firstChild)
+    }
+
+    const resizeObserver = new ResizeObserver(handleResize)
+    resizeObserver.observe(container)
+
+    return () => {
+      resizeObserver.disconnect()
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
+      if (viewerRef.current) {
+        try { viewerRef.current.dispose() } catch (e) { }
       }
+      while (container.firstChild) container.removeChild(container.firstChild)
     }
   }, [plyUrl])
 
-  // Download PLY handler
-  const handleDownloadPly = () => {
-    if (plyUrl) {
-      const a = document.createElement('a')
-      a.href = plyUrl
-      a.download = 'scene.ply'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-    }
-  }
-
   return (
-    <div className="relative w-full h-full bg-studio-bg">
-      {/* 3D Canvas Container */}
+    <div className="relative w-full h-full bg-black flex items-center justify-center p-2">
+      {/* 16:9 Container with focus border */}
       <div
         ref={containerRef}
-        className="w-full h-full"
-        style={{ minHeight: '400px' }}
-      />
+        className={`
+          relative bg-studio-bg overflow-hidden rounded-lg
+          border-2 transition-all duration-200
+          ${isActive
+            ? 'border-accent-primary shadow-lg shadow-accent-primary/30'
+            : 'border-white/20 hover:border-white/40'
+          }
+        `}
+        style={{ aspectRatio: '16/9', width: '100%', maxHeight: '100%' }}
+        onClick={() => setIsActive(true)}
+      >
+        <div ref={canvasWrapperRef} className="absolute inset-0" />
 
-      {/* Loading State */}
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-studio-bg/80 z-10">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-sm text-white/60">Loading 3D scene...</span>
-            <span className="text-xs text-white/40">{debugInfo}</span>
+        {/* Loading */}
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-studio-bg/90 z-10">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-2 border-accent-primary border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm text-white/60">Loading 3D scene...</span>
+              <span className="text-xs text-white/40">{debugInfo}</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Error State */}
-      {loadError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-studio-bg/80 z-10">
-          <div className="flex flex-col items-center gap-3 text-center px-4">
-            <div className="text-accent-error text-lg">Failed to load 3D scene</div>
-            <p className="text-sm text-white/60 max-w-md">{loadError}</p>
-            <button
-              onClick={handleDownloadPly}
-              className="mt-2 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm"
-            >
-              Download PLY to inspect
-            </button>
+        {/* Error */}
+        {loadError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-studio-bg/90 z-10">
+            <div className="text-center px-4">
+              <div className="text-accent-error text-lg mb-2">Failed to load</div>
+              <p className="text-sm text-white/60">{loadError}</p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Grid Overlay */}
-      {showGrid && !isLoading && !loadError && (
-        <div className="absolute inset-0 pointer-events-none">
-          {/* Rule of thirds */}
-          <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/20" />
-          <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/20" />
-          <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
-          <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
-          {/* Center crosshair */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="w-8 h-px bg-white/40" />
-            <div className="w-px h-8 bg-white/40 -mt-4 ml-4" />
+        {/* Grid */}
+        {showGrid && !isLoading && !loadError && (
+          <div className="absolute inset-0 pointer-events-none z-10">
+            <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/20" />
+            <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/20" />
+            <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
+            <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* HUD Overlay */}
-      {showHUD && !isLoading && !loadError && <CameraHUD />}
+        {/* HUD */}
+        {showHUD && !isLoading && !loadError && <CameraHUD />}
 
-      {/* Debug Panel - Always visible when not loading */}
-      {!isLoading && (
-        <div className="absolute bottom-2 left-2 bg-black/90 text-white/80 text-xs p-2 rounded font-mono max-w-sm z-20 pointer-events-auto">
-          <div className="font-bold text-accent-primary mb-1">Debug Info</div>
-          <div>{debugInfo}</div>
-          {splatCount > 0 && <div className="text-green-400">Splats: {splatCount.toLocaleString()}</div>}
-          {plyHeader && (
-            <details className="mt-1">
-              <summary className="cursor-pointer text-blue-400">PLY Header</summary>
-              <pre className="text-[10px] whitespace-pre-wrap mt-1 max-h-32 overflow-auto">
-                {plyHeader}
-              </pre>
-            </details>
-          )}
-          <button
-            onClick={handleDownloadPly}
-            className="mt-2 px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs"
-          >
-            Download PLY
-          </button>
-        </div>
-      )}
+        {/* Controls Help */}
+        {!isLoading && !loadError && (
+          <div className="absolute bottom-2 right-2 bg-black/80 text-white/60 text-xs p-2 rounded z-20">
+            <div className="font-semibold text-white/80 mb-1">Controls</div>
+            <div>Drag: Look around</div>
+            <div>Scroll: Up/Down</div>
+            <div>Arrows: Move</div>
+            <div>1-6: Change lens</div>
+            <div>Space: Capture</div>
+          </div>
+        )}
+
+        {/* Status indicator */}
+        {!isLoading && (
+          <div className="absolute bottom-2 left-2 bg-black/80 text-white/60 text-xs px-2 py-1 rounded z-20 flex items-center gap-2">
+            {splatCount > 0 && <span className="text-green-400">{splatCount.toLocaleString()} splats</span>}
+            {isActive ? (
+              <span className="text-accent-primary font-medium">● Active</span>
+            ) : (
+              <span className="text-white/40">Click to activate</span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
