@@ -4,7 +4,7 @@
 
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import * as db from '../db'
+import { dataService } from '../supabase'
 
 /**
  * Create initial project structure
@@ -77,7 +77,7 @@ export const useProjectStore = create((set, get) => ({
   loadProjects: async () => {
     set({ loading: true, error: null })
     try {
-      const projects = await db.getAllProjects()
+      const projects = await dataService.getAllProjects()
       set({ projects, loading: false })
     } catch (error) {
       set({ error: error.message, loading: false })
@@ -89,7 +89,7 @@ export const useProjectStore = create((set, get) => ({
     set({ loading: true, error: null })
     try {
       const project = createProject(name)
-      await db.createProject(project)
+      await dataService.createProject(project)
       set((state) => ({
         projects: [project, ...state.projects],
         currentProject: project,
@@ -106,7 +106,7 @@ export const useProjectStore = create((set, get) => ({
   loadProject: async (id) => {
     set({ loading: true, error: null })
     try {
-      const project = await db.getProject(id)
+      const project = await dataService.getProject(id)
       if (!project) {
         throw new Error('Project not found')
       }
@@ -124,7 +124,7 @@ export const useProjectStore = create((set, get) => ({
     if (!currentProject) return
 
     const updated = { ...currentProject, ...updates }
-    await db.updateProject(updated)
+    await dataService.updateProject(updated)
     set((state) => ({
       currentProject: updated,
       projects: state.projects.map((p) => (p.id === updated.id ? updated : p)),
@@ -133,7 +133,7 @@ export const useProjectStore = create((set, get) => ({
 
   // Delete project
   deleteProject: async (id) => {
-    await db.deleteProject(id)
+    await dataService.deleteProject(id)
     set((state) => ({
       projects: state.projects.filter((p) => p.id !== id),
       currentProject: state.currentProject?.id === id ? null : state.currentProject,
