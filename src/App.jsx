@@ -9,8 +9,9 @@ import { ProjectLayout } from './components/layout/ProjectLayout'
 // Page components
 import { Dashboard } from './components/dashboard'
 import { ScriptPage } from './components/script'
+import { StoryboardPage } from './components/storyboard'
+import { FramesPage } from './components/frames'
 import { ShotsPage } from './components/shots'
-import { VisualsPage } from './components/visuals'
 import { VideoPage } from './components/video'
 import { VoicePage } from './components/voice'
 import { AssemblyPage } from './components/assembly'
@@ -40,8 +41,9 @@ export default function App() {
 
           {/* Project pages */}
           <Route path="script" element={<ScriptPage />} />
+          <Route path="storyboard" element={<StoryboardPage />} />
+          <Route path="frames" element={<FramesPage />} />
           <Route path="shots" element={<ShotsPage />} />
-          <Route path="visuals" element={<VisualsPage />} />
           <Route path="video" element={<VideoPage />} />
           <Route path="voice" element={<VoicePage />} />
           <Route path="assembly" element={<AssemblyPage />} />

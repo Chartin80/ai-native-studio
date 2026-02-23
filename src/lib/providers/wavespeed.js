@@ -1,9 +1,11 @@
 /**
  * Wavespeed.ai Provider Implementation
  * Handles all media generation via Wavespeed API
+ * Includes Nano Banana Pro Edit for image editing
  */
 
-const BASE_URL = 'https://api.wavespeed.ai/api/v3'
+const BASE_URL = 'https://api.wavespeed.ai/api/v2'
+const WAVESPEED_API_KEY = 'df60bb6a3229d10abe24f8947d49c43aa93102628557fc33a31980c9c662dc3e'
 
 export class WavespeedProvider {
   constructor() {
@@ -11,10 +13,38 @@ export class WavespeedProvider {
   }
 
   /**
-   * Get API key from localStorage
+   * Get API key - use hardcoded key or fallback to localStorage
    */
   getApiKey() {
-    return localStorage.getItem('wavespeed_api_key')
+    return WAVESPEED_API_KEY || localStorage.getItem('wavespeed_api_key')
+  }
+
+  /**
+   * Convert file to base64 data URL
+   */
+  async fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  /**
+   * Prepare image URL from various sources
+   */
+  async prepareImageUrl(imageSource) {
+    if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
+      return imageSource
+    }
+    if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+      return imageSource
+    }
+    if (imageSource instanceof File || imageSource instanceof Blob) {
+      return await this.fileToBase64(imageSource)
+    }
+    throw new Error('Invalid image source')
   }
 
   /**
@@ -187,4 +217,136 @@ export class WavespeedProvider {
       provider: this.name,
     }
   }
+
+  /**
+   * Nano Banana Pro Edit - Edit images with AI
+   * @param {Object} params
+   * @param {string} params.prompt - The editing prompt
+   * @param {Array<string|File>} params.images - Array of image URLs or files
+   * @param {string} params.aspectRatio - '16:9' or '9:16'
+   * @returns {Promise<{imageUrl: string, status: string}>}
+   */
+  async editImageWithNanoBanana(params) {
+    const { prompt, images, aspectRatio = '16:9' } = params
+
+    if (!prompt) {
+      throw new Error('Prompt is required')
+    }
+
+    if (!images || images.length === 0) {
+      throw new Error('At least one image is required')
+    }
+
+    // Prepare image URLs
+    const imageUrls = await Promise.all(
+      images.map(img => this.prepareImageUrl(img))
+    )
+
+    const requestBody = {
+      prompt,
+      images: imageUrls,
+      aspect_ratio: aspectRatio,
+      resolution: '2k',
+      output_format: 'png',
+      enable_sync_mode: true,
+    }
+
+    console.log('Nano Banana Edit Request:', {
+      prompt: prompt.substring(0, 50) + '...',
+      imageCount: imageUrls.length,
+      aspectRatio,
+    })
+
+    const apiKey = this.getApiKey()
+    if (!apiKey) {
+      throw new Error('Wavespeed API key not configured')
+    }
+
+    const response = await fetch(`${BASE_URL}/wavespeed-ai/nano-banana-pro-edit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Nano Banana API Error:', response.status, errorText)
+      throw new Error(`API error: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('Nano Banana Response:', result)
+
+    // Handle sync mode response
+    if (result.data?.output?.url) {
+      return {
+        imageUrl: result.data.output.url,
+        status: 'completed',
+        provider: this.name,
+      }
+    }
+
+    if (result.data?.outputs?.[0]) {
+      return {
+        imageUrl: result.data.outputs[0],
+        status: 'completed',
+        provider: this.name,
+      }
+    }
+
+    // Handle async mode - need to poll
+    if (result.data?.id) {
+      return await this.pollForResult(result.data.id)
+    }
+
+    throw new Error('Unexpected response format from Wavespeed API')
+  }
+
+  /**
+   * Poll for async result
+   */
+  async pollForResult(requestId, maxAttempts = 120, intervalMs = 2000) {
+    const apiKey = this.getApiKey()
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+
+      const response = await fetch(`${BASE_URL}/predictions/${requestId}/result`, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+      })
+
+      if (!response.ok) {
+        continue
+      }
+
+      const result = await response.json()
+      const status = result.data?.status || result.status
+
+      if (status === 'completed' || status === 'succeeded') {
+        const imageUrl = result.data?.output?.url || result.output?.url || result.data?.outputs?.[0]
+        if (imageUrl) {
+          return {
+            imageUrl,
+            status: 'completed',
+            provider: this.name,
+          }
+        }
+      }
+
+      if (status === 'failed') {
+        throw new Error(result.data?.error || result.error || 'Generation failed')
+      }
+
+      console.log(`Polling attempt ${i + 1}/${maxAttempts}, status: ${status}`)
+    }
+
+    throw new Error('Timeout waiting for result')
+  }
 }
+
+export const wavespeedProvider = new WavespeedProvider()

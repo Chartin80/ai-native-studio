@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useParams, useLocation, Link, useNavigate } from 'react-router-dom'
 import {
   FileText,
-  List,
+  LayoutGrid,
   Image,
   Video,
   Mic2,
@@ -16,9 +16,9 @@ import { Spinner } from '../common'
 
 const navItems = [
   { path: 'script', icon: FileText, label: 'Script' },
-  { path: 'shots', icon: List, label: 'Shots' },
-  { path: 'visuals', icon: Image, label: 'Visuals' },
-  { path: 'video', icon: Video, label: 'Video' },
+  { path: 'storyboard', icon: LayoutGrid, label: 'Storyboard' },
+  { path: 'frames', icon: Image, label: 'Frames' },
+  { path: 'shots', icon: Video, label: 'Shots' },
   { path: 'voice', icon: Mic2, label: 'Voice' },
   { path: 'camera', icon: Box, label: 'Camera 3D' },
   { path: 'assembly', icon: Layers, label: 'Assembly' },
