@@ -32,7 +32,8 @@ export function FramesPage() {
 
   // Drag state for canvas items
   const [draggingFrameId, setDraggingFrameId] = useState(null)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const draggingFrameIdRef = useRef(null)
 
   const { addNotification } = useUIStore()
   const fileInputRef = useRef(null)
@@ -161,57 +162,49 @@ export function FramesPage() {
     const frame = frames.find(f => f.id === frameId)
     if (!frame) return
 
-    // Use e.target to find the frame card element
     const frameCard = e.target.closest('.frame-card')
     if (!frameCard) return
 
     const rect = frameCard.getBoundingClientRect()
-    setDragOffset({
+    dragOffsetRef.current = {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-    })
+    }
+    draggingFrameIdRef.current = frameId
     setDraggingFrameId(frameId)
     setSelectedFrameId(frameId)
-  }, [frames])
 
-  const handleDragMove = useCallback((e) => {
-    if (!draggingFrameId || !canvasRef.current) return
+    // Attach listeners immediately on mousedown
+    const handleMouseMove = (moveEvent) => {
+      if (!draggingFrameIdRef.current || !canvasRef.current) return
 
-    const canvasRect = canvasRef.current.getBoundingClientRect()
-    const scrollLeft = canvasRef.current.scrollLeft
-    const scrollTop = canvasRef.current.scrollTop
+      const canvasRect = canvasRef.current.getBoundingClientRect()
+      const scrollLeft = canvasRef.current.scrollLeft
+      const scrollTop = canvasRef.current.scrollTop
 
-    const newX = e.clientX - canvasRect.left + scrollLeft - dragOffset.x
-    const newY = e.clientY - canvasRect.top + scrollTop - dragOffset.y
+      const newX = moveEvent.clientX - canvasRect.left + scrollLeft - dragOffsetRef.current.x
+      const newY = moveEvent.clientY - canvasRect.top + scrollTop - dragOffsetRef.current.y
 
-    // Keep within bounds (minimum 0)
-    const boundedX = Math.max(0, newX)
-    const boundedY = Math.max(0, newY)
+      const boundedX = Math.max(0, newX)
+      const boundedY = Math.max(0, newY)
 
-    updateFrame(draggingFrameId, {
-      position: { x: boundedX, y: boundedY }
-    })
-  }, [draggingFrameId, dragOffset, updateFrame])
-
-  const handleDragEnd = useCallback(() => {
-    setDraggingFrameId(null)
-  }, [])
-
-  // Global mouse event listeners for dragging
-  useEffect(() => {
-    if (draggingFrameId) {
-      const handleMouseMove = (e) => handleDragMove(e)
-      const handleMouseUp = () => handleDragEnd()
-
-      window.addEventListener('mousemove', handleMouseMove)
-      window.addEventListener('mouseup', handleMouseUp)
-
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        window.removeEventListener('mouseup', handleMouseUp)
-      }
+      setFrames(prev => prev.map(f =>
+        f.id === draggingFrameIdRef.current
+          ? { ...f, position: { x: boundedX, y: boundedY } }
+          : f
+      ))
     }
-  }, [draggingFrameId, handleDragMove, handleDragEnd])
+
+    const handleMouseUp = () => {
+      draggingFrameIdRef.current = null
+      setDraggingFrameId(null)
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }, [frames])
 
   // Bring frame to front when selected
   const getFrameZIndex = useCallback((frameId) => {
