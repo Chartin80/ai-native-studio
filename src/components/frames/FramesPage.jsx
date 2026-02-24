@@ -1,9 +1,10 @@
 /**
  * FramesPage - Generate and edit frames using Nano Banana Pro Edit
+ * Features Figma-like canvas with draggable frame cards
  */
 
-import { useState, useCallback, useRef } from 'react'
-import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers, GripVertical } from 'lucide-react'
 import { Panel, PanelHeader, PanelContent } from '../layout'
 import { Button, Textarea, Spinner, EmptyState } from '../common'
 import { wavespeedProvider } from '@/lib/providers/wavespeed'
@@ -19,7 +20,7 @@ export function FramesPage() {
   const [prompt, setPrompt] = useState('')
   const [aspectRatio, setAspectRatio] = useState('16:9')
   const [sourceImages, setSourceImages] = useState([])
-  const [isDragging, setIsDragging] = useState(false)
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false)
@@ -29,14 +30,18 @@ export function FramesPage() {
   const [selectedFrameId, setSelectedFrameId] = useState(null)
   const [magnifiedFrameId, setMagnifiedFrameId] = useState(null)
 
+  // Drag state for canvas items
+  const [draggingFrameId, setDraggingFrameId] = useState(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+
   const { addNotification } = useUIStore()
   const fileInputRef = useRef(null)
   const canvasRef = useRef(null)
 
-  // Handle file drop
-  const handleDrop = useCallback((e) => {
+  // Handle file drop for source images
+  const handleFileDrop = useCallback((e) => {
     e.preventDefault()
-    setIsDragging(false)
+    setIsDraggingFile(false)
 
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'))
     if (files.length > 0) {
@@ -44,14 +49,14 @@ export function FramesPage() {
     }
   }, [])
 
-  const handleDragOver = useCallback((e) => {
+  const handleFileDragOver = useCallback((e) => {
     e.preventDefault()
-    setIsDragging(true)
+    setIsDraggingFile(true)
   }, [])
 
-  const handleDragLeave = useCallback((e) => {
+  const handleFileDragLeave = useCallback((e) => {
     e.preventDefault()
-    setIsDragging(false)
+    setIsDraggingFile(false)
   }, [])
 
   // Process uploaded files
@@ -141,12 +146,73 @@ export function FramesPage() {
     }
   }, [frames, addNotification])
 
-  // Update frame name/notes
+  // Update frame properties (name, notes, position)
   const updateFrame = useCallback((frameId, updates) => {
     setFrames(prev => prev.map(f =>
       f.id === frameId ? { ...f, ...updates } : f
     ))
   }, [])
+
+  // Drag handlers for moving frames on canvas
+  const handleDragStart = useCallback((e, frameId) => {
+    e.stopPropagation()
+    const frame = frames.find(f => f.id === frameId)
+    if (!frame) return
+
+    const rect = e.currentTarget.closest('.frame-card').getBoundingClientRect()
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    })
+    setDraggingFrameId(frameId)
+    setSelectedFrameId(frameId)
+  }, [frames])
+
+  const handleDragMove = useCallback((e) => {
+    if (!draggingFrameId || !canvasRef.current) return
+
+    const canvasRect = canvasRef.current.getBoundingClientRect()
+    const scrollLeft = canvasRef.current.scrollLeft
+    const scrollTop = canvasRef.current.scrollTop
+
+    const newX = e.clientX - canvasRect.left + scrollLeft - dragOffset.x
+    const newY = e.clientY - canvasRect.top + scrollTop - dragOffset.y
+
+    // Keep within bounds (minimum 0)
+    const boundedX = Math.max(0, newX)
+    const boundedY = Math.max(0, newY)
+
+    updateFrame(draggingFrameId, {
+      position: { x: boundedX, y: boundedY }
+    })
+  }, [draggingFrameId, dragOffset, updateFrame])
+
+  const handleDragEnd = useCallback(() => {
+    setDraggingFrameId(null)
+  }, [])
+
+  // Global mouse event listeners for dragging
+  useEffect(() => {
+    if (draggingFrameId) {
+      const handleMouseMove = (e) => handleDragMove(e)
+      const handleMouseUp = () => handleDragEnd()
+
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+      }
+    }
+  }, [draggingFrameId, handleDragMove, handleDragEnd])
+
+  // Bring frame to front when selected
+  const getFrameZIndex = useCallback((frameId) => {
+    if (draggingFrameId === frameId) return 100
+    if (selectedFrameId === frameId) return 50
+    return 10
+  }, [draggingFrameId, selectedFrameId])
 
   return (
     <div className="flex-1 flex overflow-hidden">
@@ -170,14 +236,14 @@ export function FramesPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-white/80">Source Images</label>
               <div
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
+                onDrop={handleFileDrop}
+                onDragOver={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
                 onClick={() => fileInputRef.current?.click()}
                 className={`
                   border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
                   transition-all duration-200
-                  ${isDragging
+                  ${isDraggingFile
                     ? 'border-accent-primary bg-accent-primary/10'
                     : 'border-white/20 hover:border-white/40 hover:bg-white/5'}
                 `}
@@ -274,7 +340,11 @@ export function FramesPage() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Panel className="flex-1 flex flex-col">
           <PanelHeader title="Frame Canvas" />
-          <PanelContent className="flex-1 relative overflow-auto bg-studio-bg/50" ref={canvasRef}>
+          <PanelContent
+            className={`flex-1 relative overflow-auto bg-studio-bg/50 ${draggingFrameId ? 'cursor-grabbing' : ''}`}
+            ref={canvasRef}
+            onClick={() => setSelectedFrameId(null)}
+          >
             {frames.length === 0 ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <EmptyState
@@ -284,17 +354,19 @@ export function FramesPage() {
                 />
               </div>
             ) : (
-              <div className="min-h-full min-w-full p-4 relative">
+              <div className="min-h-[2000px] min-w-[2000px] p-4 relative">
                 {frames.map(frame => (
                   <FrameCard
                     key={frame.id}
                     frame={frame}
                     isSelected={selectedFrameId === frame.id}
-                    isMagnified={magnifiedFrameId === frame.id}
+                    isDragging={draggingFrameId === frame.id}
+                    zIndex={getFrameZIndex(frame.id)}
                     onSelect={() => setSelectedFrameId(frame.id)}
-                    onMagnify={() => setMagnifiedFrameId(magnifiedFrameId === frame.id ? null : frame.id)}
+                    onMagnify={() => setMagnifiedFrameId(frame.id)}
                     onUpdate={(updates) => updateFrame(frame.id, updates)}
                     onAction={(action) => handleFrameAction(frame.id, action)}
+                    onDragStart={(e) => handleDragStart(e, frame.id)}
                   />
                 ))}
               </div>
@@ -314,8 +386,8 @@ export function FramesPage() {
   )
 }
 
-// Frame Card Component
-function FrameCard({ frame, isSelected, isMagnified, onSelect, onMagnify, onUpdate, onAction }) {
+// Frame Card Component with drag support
+function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify, onUpdate, onAction, onDragStart }) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [isEditingName, setIsEditingName] = useState(false)
   const [isEditingNotes, setIsEditingNotes] = useState(false)
@@ -335,52 +407,67 @@ function FrameCard({ frame, isSelected, isMagnified, onSelect, onMagnify, onUpda
   return (
     <div
       className={`
-        absolute bg-studio-surface rounded-lg overflow-hidden shadow-xl
-        transition-all duration-200 cursor-pointer
-        ${isSelected ? 'ring-2 ring-accent-primary' : 'hover:ring-1 hover:ring-white/20'}
+        frame-card absolute bg-studio-surface rounded-lg overflow-hidden shadow-xl
+        transition-shadow duration-200
+        ${isSelected ? 'ring-2 ring-accent-primary shadow-accent-primary/20' : 'hover:ring-1 hover:ring-white/20'}
+        ${isDragging ? 'shadow-2xl cursor-grabbing' : ''}
       `}
       style={{
         left: frame.position.x,
         top: frame.position.y,
         width: 300,
+        zIndex,
       }}
-      onClick={onSelect}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect()
+      }}
     >
-      {/* Image */}
-      <div className="relative aspect-video bg-black">
-        <img
-          src={frame.imageUrl}
-          alt={frame.name}
-          className="w-full h-full object-cover"
-        />
-
-        {/* Overlay Actions */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+      {/* Drag Handle Header */}
+      <div
+        className="flex items-center justify-between px-2 py-1.5 bg-white/5 cursor-grab active:cursor-grabbing border-b border-white/10"
+        onMouseDown={onDragStart}
+      >
+        <div className="flex items-center gap-1 text-white/40">
+          <GripVertical className="w-4 h-4" />
+          <span className="text-xs font-medium truncate max-w-[200px]">{frame.name}</span>
+        </div>
+        <div className="flex items-center gap-1">
           <button
             onClick={(e) => {
               e.stopPropagation()
               onMagnify()
             }}
-            className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+            className="p-1 hover:bg-white/10 rounded transition-colors"
             title="Magnify"
           >
-            <ZoomIn className="w-5 h-5" />
+            <ZoomIn className="w-3.5 h-3.5 text-white/40 hover:text-white" />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation()
               setShowDropdown(!showDropdown)
             }}
-            className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition-colors"
+            className="p-1 hover:bg-white/10 rounded transition-colors"
             title="Actions"
           >
-            <MoreVertical className="w-5 h-5" />
+            <MoreVertical className="w-3.5 h-3.5 text-white/40 hover:text-white" />
           </button>
         </div>
+      </div>
+
+      {/* Image */}
+      <div className="relative aspect-video bg-black">
+        <img
+          src={frame.imageUrl}
+          alt={frame.name}
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
 
         {/* Dropdown Menu */}
         {showDropdown && (
-          <div className="absolute top-12 right-2 bg-studio-surface border border-studio-border rounded-lg shadow-xl z-10 py-1 min-w-[160px]">
+          <div className="absolute top-2 right-2 bg-studio-surface border border-studio-border rounded-lg shadow-xl z-20 py-1 min-w-[160px]">
             <button
               onClick={(e) => {
                 e.stopPropagation()
