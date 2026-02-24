@@ -393,6 +393,7 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
   const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [localName, setLocalName] = useState(frame.name)
   const [localNotes, setLocalNotes] = useState(frame.notes)
+  const dropdownRef = useRef(null)
 
   const handleNameSave = () => {
     onUpdate({ name: localName })
@@ -404,11 +405,31 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
     setIsEditingNotes(false)
   }
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showDropdown) return
+
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setShowDropdown(false)
+      }
+    }
+
+    // Use setTimeout to avoid immediate trigger from the click that opened it
+    setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside)
+    }, 0)
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showDropdown])
+
   return (
     <div
       className={`
         frame-card absolute bg-studio-surface rounded-lg overflow-hidden shadow-xl
-        transition-shadow duration-200
+        transition-shadow duration-200 cursor-grab active:cursor-grabbing
         ${isSelected ? 'ring-2 ring-accent-primary shadow-accent-primary/20' : 'hover:ring-1 hover:ring-white/20'}
         ${isDragging ? 'shadow-2xl cursor-grabbing' : ''}
       `}
@@ -422,12 +443,16 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
         e.stopPropagation()
         onSelect()
       }}
+      onMouseDown={(e) => {
+        // Don't start drag if clicking on buttons or inputs
+        if (e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea')) {
+          return
+        }
+        onDragStart(e)
+      }}
     >
-      {/* Drag Handle Header */}
-      <div
-        className="flex items-center justify-between px-2 py-1.5 bg-white/5 cursor-grab active:cursor-grabbing border-b border-white/10"
-        onMouseDown={onDragStart}
-      >
+      {/* Header with title and actions */}
+      <div className="flex items-center justify-between px-2 py-1.5 bg-white/5 border-b border-white/10">
         <div className="flex items-center gap-1 text-white/40">
           <GripVertical className="w-4 h-4" />
           <span className="text-xs font-medium truncate max-w-[200px]">{frame.name}</span>
@@ -467,7 +492,10 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
 
         {/* Dropdown Menu */}
         {showDropdown && (
-          <div className="absolute top-2 right-2 bg-studio-surface border border-studio-border rounded-lg shadow-xl z-20 py-1 min-w-[160px]">
+          <div
+            ref={dropdownRef}
+            className="absolute top-2 right-2 bg-studio-surface border border-studio-border rounded-lg shadow-xl z-20 py-1 min-w-[160px]"
+          >
             <button
               onClick={(e) => {
                 e.stopPropagation()
