@@ -258,18 +258,16 @@ export class WavespeedProvider {
       aspectRatio,
     })
 
-    const apiKey = this.getApiKey()
-    if (!apiKey) {
-      throw new Error('Wavespeed API key not configured')
-    }
-
-    const response = await fetch(`${BASE_URL_V3}/google/nano-banana-pro/edit`, {
+    // Use proxy to avoid CORS issues
+    const response = await fetch('/api/wavespeed', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        endpoint: 'google/nano-banana-pro/edit',
+        ...requestBody,
+      }),
     })
 
     if (!response.ok) {
@@ -310,15 +308,19 @@ export class WavespeedProvider {
    * Poll for async result
    */
   async pollForResult(requestId, maxAttempts = 120, intervalMs = 2000) {
-    const apiKey = this.getApiKey()
-
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(resolve => setTimeout(resolve, intervalMs))
 
-      const response = await fetch(`${BASE_URL}/predictions/${requestId}/result`, {
+      // Use proxy for polling too
+      const response = await fetch('/api/wavespeed', {
+        method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          endpoint: `predictions/${requestId}/result`,
+          _method: 'GET',
+        }),
       })
 
       if (!response.ok) {
