@@ -155,11 +155,17 @@ export function FramesPage() {
 
   // Drag handlers for moving frames on canvas
   const handleDragStart = useCallback((e, frameId) => {
+    e.preventDefault()
     e.stopPropagation()
+
     const frame = frames.find(f => f.id === frameId)
     if (!frame) return
 
-    const rect = e.currentTarget.closest('.frame-card').getBoundingClientRect()
+    // Use e.target to find the frame card element
+    const frameCard = e.target.closest('.frame-card')
+    if (!frameCard) return
+
+    const rect = frameCard.getBoundingClientRect()
     setDragOffset({
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
