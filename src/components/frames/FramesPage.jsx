@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers, GripVertical } from 'lucide-react'
+import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers, GripVertical, Download } from 'lucide-react'
 import { Panel, PanelHeader, PanelContent } from '../layout'
 import { Button, Textarea, Spinner, EmptyState } from '../common'
 import { wavespeedProvider } from '@/lib/providers/wavespeed'
@@ -558,6 +558,33 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
             >
               <Layers className="w-4 h-4" />
               Create New Angles
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation()
+                setShowDropdown(false)
+                // Download the image
+                try {
+                  const response = await fetch(frame.imageUrl)
+                  const blob = await response.blob()
+                  const url = window.URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `${frame.name.replace(/[^a-z0-9]/gi, '_')}.png`
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  window.URL.revokeObjectURL(url)
+                } catch (error) {
+                  console.error('Download failed:', error)
+                  // Fallback: open in new tab
+                  window.open(frame.imageUrl, '_blank')
+                }
+              }}
+              className="w-full px-3 py-2 text-left text-sm hover:bg-white/10 flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Download Image
             </button>
             <div className="border-t border-studio-border my-1" />
             <button
