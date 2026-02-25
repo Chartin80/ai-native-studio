@@ -21,6 +21,7 @@ function createProject(name) {
     locations: [],
     scenes: [],
     frames: [],
+    clips: [],
     assembly: {
       timeline: [],
     },
@@ -417,6 +418,46 @@ export const useProjectStore = create((set, get) => ({
 
     const frames = (currentProject.frames || []).filter(f => f.id !== frameId)
     await get().updateProject({ frames })
+  },
+
+  // ==================== Clips (Video) ====================
+
+  // Add clip to project
+  addClip: async (clip) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const newClip = {
+      id: uuid(),
+      ...clip,
+      createdAt: new Date().toISOString(),
+    }
+
+    const clips = [...(currentProject.clips || []), newClip]
+    await get().updateProject({ clips })
+
+    return newClip
+  },
+
+  // Update clip
+  updateClip: async (clipId, updates) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const clips = (currentProject.clips || []).map(c =>
+      c.id === clipId ? { ...c, ...updates } : c
+    )
+
+    await get().updateProject({ clips })
+  },
+
+  // Delete clip
+  deleteClip: async (clipId) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const clips = (currentProject.clips || []).filter(c => c.id !== clipId)
+    await get().updateProject({ clips })
   },
 
   // Clear current project

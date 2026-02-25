@@ -4,9 +4,11 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers, GripVertical, Download } from 'lucide-react'
 import { Panel, PanelHeader, PanelContent } from '../layout'
 import { Button, Textarea, Spinner, EmptyState } from '../common'
+import { VideoGenerationModal } from './VideoGenerationModal'
 import { wavespeedProvider } from '@/lib/providers/wavespeed'
 import { useUIStore, useProjectStore } from '@/lib/store'
 
@@ -16,8 +18,10 @@ const ASPECT_RATIOS = [
 ]
 
 export function FramesPage() {
+  const navigate = useNavigate()
+
   // Project store - frames are persisted here
-  const { currentProject, addFrame, updateFrame, updateFrames, deleteFrame } = useProjectStore()
+  const { currentProject, addFrame, updateFrame, updateFrames, deleteFrame, addClip } = useProjectStore()
   const frames = currentProject?.frames || []
 
   // Input state
@@ -28,6 +32,11 @@ export function FramesPage() {
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false)
+
+  // Video generation state
+  const [videoModalFrame, setVideoModalFrame] = useState(null)
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false)
+  const [videoProgress, setVideoProgress] = useState(0)
 
   // UI state
   const [selectedFrameId, setSelectedFrameId] = useState(null)
@@ -137,7 +146,7 @@ export function FramesPage() {
 
     switch (action) {
       case 'create-video':
-        addNotification({ type: 'info', message: 'Video generation coming soon!' })
+        setVideoModalFrame(frame)
         break
       case 'step-into':
         addNotification({ type: 'info', message: 'Step into frame (3D) coming soon!' })
@@ -153,6 +162,57 @@ export function FramesPage() {
         break
     }
   }, [frames, addNotification, deleteFrame])
+
+  // Handle video generation from modal
+  const handleVideoGenerate = useCallback(async (videoParams) => {
+    if (!videoModalFrame || !currentProject) return
+
+    setIsGeneratingVideo(true)
+    setVideoProgress(0)
+
+    try {
+      const result = await wavespeedProvider.generateVideoWithSeedance({
+        imageUrl: videoModalFrame.imageUrl,
+        prompt: videoParams.prompt,
+        aspectRatio: videoParams.aspectRatio,
+        duration: videoParams.duration,
+        generateAudio: videoParams.generateAudio,
+        cameraFixed: videoParams.cameraFixed,
+        onProgress: ({ progress }) => {
+          setVideoProgress(progress)
+        },
+      })
+
+      if (result.videoUrl) {
+        // Get current clips count for positioning
+        const clips = currentProject.clips || []
+
+        // Add video clip to project - copy metadata from source frame
+        await addClip({
+          videoUrl: result.videoUrl,
+          name: videoModalFrame.name,
+          notes: videoModalFrame.notes || '',
+          position: { x: 50 + (clips.length % 3) * 320, y: 50 + Math.floor(clips.length / 3) * 220 },
+          sourceFrameId: videoModalFrame.id,
+          prompt: videoParams.prompt,
+          duration: videoParams.duration,
+          aspectRatio: videoParams.aspectRatio,
+        })
+
+        addNotification({ type: 'success', message: 'Video generated successfully!' })
+        setVideoModalFrame(null)
+
+        // Navigate to Shots tab
+        navigate(`/project/${currentProject.id}/shots`)
+      }
+    } catch (error) {
+      console.error('Video generation error:', error)
+      addNotification({ type: 'error', message: error.message || 'Video generation failed' })
+    } finally {
+      setIsGeneratingVideo(false)
+      setVideoProgress(0)
+    }
+  }, [videoModalFrame, currentProject, addClip, addNotification, navigate])
 
   // Update frame properties (name, notes) - wrapper for store method
   const handleUpdateFrame = useCallback(async (frameId, updates) => {
@@ -407,6 +467,21 @@ export function FramesPage() {
         <MagnifiedView
           frame={frames.find(f => f.id === magnifiedFrameId)}
           onClose={() => setMagnifiedFrameId(null)}
+        />
+      )}
+
+      {/* Video Generation Modal */}
+      {videoModalFrame && (
+        <VideoGenerationModal
+          frame={videoModalFrame}
+          onClose={() => {
+            if (!isGeneratingVideo) {
+              setVideoModalFrame(null)
+            }
+          }}
+          onGenerate={handleVideoGenerate}
+          isGenerating={isGeneratingVideo}
+          progress={videoProgress}
         />
       )}
     </div>

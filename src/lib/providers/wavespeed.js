@@ -305,6 +305,141 @@ export class WavespeedProvider {
   }
 
   /**
+   * Seedance 1.5 Pro - Generate video from image
+   * @param {Object} params
+   * @param {string} params.imageUrl - Source image URL
+   * @param {string} params.prompt - Motion/video description
+   * @param {string} params.aspectRatio - '16:9', '9:16', '1:1', etc.
+   * @param {number} params.duration - 4-12 seconds
+   * @param {boolean} params.generateAudio - Whether to generate audio
+   * @param {boolean} params.cameraFixed - Whether camera is fixed
+   * @param {Function} params.onProgress - Progress callback
+   * @returns {Promise<{videoUrl: string, status: string}>}
+   */
+  async generateVideoWithSeedance(params) {
+    const {
+      imageUrl,
+      prompt,
+      aspectRatio = '16:9',
+      duration = 5,
+      generateAudio = false,
+      cameraFixed = false,
+      onProgress,
+    } = params
+
+    if (!imageUrl) {
+      throw new Error('Image URL is required')
+    }
+
+    const requestBody = {
+      image: imageUrl,
+      prompt: prompt || '',
+      aspect_ratio: aspectRatio,
+      duration: Math.min(12, Math.max(4, duration)),
+      resolution: '720p',
+      generate_audio: generateAudio,
+      camera_fixed: cameraFixed,
+      seed: -1,
+    }
+
+    console.log('Seedance Video Request:', {
+      prompt: prompt?.substring(0, 50) + '...',
+      aspectRatio,
+      duration,
+      generateAudio,
+      cameraFixed,
+    })
+
+    // Use proxy to avoid CORS
+    const response = await fetch('/api/wavespeed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        endpoint: 'bytedance/seedance-v1.5-pro/image-to-video-spicy',
+        ...requestBody,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Seedance API Error:', response.status, errorText)
+      throw new Error(`API error: ${response.status} - ${errorText}`)
+    }
+
+    const result = await response.json()
+    console.log('Seedance Response:', result)
+
+    // Handle async response - need to poll for video
+    if (result.data?.id) {
+      return await this.pollForVideoResult(result.data.id, onProgress)
+    }
+
+    // Handle sync response (unlikely for video)
+    if (result.data?.output?.url) {
+      return {
+        videoUrl: result.data.output.url,
+        status: 'completed',
+        provider: this.name,
+      }
+    }
+
+    throw new Error('Unexpected response format from Wavespeed API')
+  }
+
+  /**
+   * Poll for video result (longer timeout for video generation)
+   */
+  async pollForVideoResult(requestId, onProgress, maxAttempts = 180, intervalMs = 3000) {
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs))
+
+      const response = await fetch('/api/wavespeed', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          endpoint: `predictions/${requestId}/result`,
+          _method: 'GET',
+        }),
+      })
+
+      if (!response.ok) {
+        continue
+      }
+
+      const result = await response.json()
+      const status = result.data?.status || result.status
+      const progress = result.data?.progress || Math.round((i / maxAttempts) * 100)
+
+      if (onProgress) {
+        onProgress({ status, progress })
+      }
+
+      if (status === 'completed' || status === 'succeeded') {
+        const videoUrl = result.data?.output?.url || result.output?.url || result.data?.outputs?.[0]
+        if (videoUrl) {
+          return {
+            videoUrl,
+            status: 'completed',
+            provider: this.name,
+          }
+        }
+      }
+
+      if (status === 'failed') {
+        throw new Error(result.data?.error || result.error || 'Video generation failed')
+      }
+
+      console.log(`Video polling attempt ${i + 1}/${maxAttempts}, status: ${status}, progress: ${progress}%`)
+    }
+
+    throw new Error('Timeout waiting for video result')
+  }
+
+  /**
    * Poll for async result
    */
   async pollForResult(requestId, maxAttempts = 120, intervalMs = 2000) {
