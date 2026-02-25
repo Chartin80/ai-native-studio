@@ -20,6 +20,7 @@ function createProject(name) {
     characters: [],
     locations: [],
     scenes: [],
+    frames: [],
     assembly: {
       timeline: [],
     },
@@ -368,6 +369,54 @@ export const useProjectStore = create((set, get) => ({
     })
 
     return newLocation
+  },
+
+  // ==================== Frames ====================
+
+  // Add frame to project
+  addFrame: async (frame) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const newFrame = {
+      id: uuid(),
+      ...frame,
+      createdAt: new Date().toISOString(),
+    }
+
+    const frames = [...(currentProject.frames || []), newFrame]
+    await get().updateProject({ frames })
+
+    return newFrame
+  },
+
+  // Update frame
+  updateFrame: async (frameId, updates) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const frames = (currentProject.frames || []).map(f =>
+      f.id === frameId ? { ...f, ...updates } : f
+    )
+
+    await get().updateProject({ frames })
+  },
+
+  // Update multiple frames at once (for batch position updates)
+  updateFrames: async (updatedFrames) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    await get().updateProject({ frames: updatedFrames })
+  },
+
+  // Delete frame
+  deleteFrame: async (frameId) => {
+    const { currentProject } = get()
+    if (!currentProject) return
+
+    const frames = (currentProject.frames || []).filter(f => f.id !== frameId)
+    await get().updateProject({ frames })
   },
 
   // Clear current project

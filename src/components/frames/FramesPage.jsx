@@ -8,7 +8,7 @@ import { Image, Upload, X, Move, ZoomIn, MoreVertical, Video, Camera, Layers, Gr
 import { Panel, PanelHeader, PanelContent } from '../layout'
 import { Button, Textarea, Spinner, EmptyState } from '../common'
 import { wavespeedProvider } from '@/lib/providers/wavespeed'
-import { useUIStore } from '@/lib/store'
+import { useUIStore, useProjectStore } from '@/lib/store'
 
 const ASPECT_RATIOS = [
   { value: '16:9', label: '16:9 (Landscape)' },
@@ -16,6 +16,10 @@ const ASPECT_RATIOS = [
 ]
 
 export function FramesPage() {
+  // Project store - frames are persisted here
+  const { currentProject, addFrame, updateFrame, updateFrames, deleteFrame } = useProjectStore()
+  const frames = currentProject?.frames || []
+
   // Input state
   const [prompt, setPrompt] = useState('')
   const [aspectRatio, setAspectRatio] = useState('16:9')
@@ -25,13 +29,13 @@ export function FramesPage() {
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false)
 
-  // Output state - frames on canvas
-  const [frames, setFrames] = useState([])
+  // UI state
   const [selectedFrameId, setSelectedFrameId] = useState(null)
   const [magnifiedFrameId, setMagnifiedFrameId] = useState(null)
 
   // Drag state for canvas items
   const [draggingFrameId, setDraggingFrameId] = useState(null)
+  const [localFramePositions, setLocalFramePositions] = useState({})
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const draggingFrameIdRef = useRef(null)
 
@@ -91,6 +95,10 @@ export function FramesPage() {
       addNotification({ type: 'error', message: 'Please add at least one source image' })
       return
     }
+    if (!currentProject) {
+      addNotification({ type: 'error', message: 'No project selected' })
+      return
+    }
 
     setIsGenerating(true)
 
@@ -102,19 +110,17 @@ export function FramesPage() {
       })
 
       if (result.imageUrl) {
-        // Add to canvas with initial position
-        const newFrame = {
-          id: Date.now(),
+        // Add to canvas with initial position - persisted to database
+        await addFrame({
           imageUrl: result.imageUrl,
           name: `Frame ${frames.length + 1}`,
           notes: '',
           position: { x: 50 + (frames.length % 3) * 320, y: 50 + Math.floor(frames.length / 3) * 220 },
           prompt: prompt.trim(),
           sourceImages: sourceImages.map(img => img.name),
-          createdAt: new Date().toISOString(),
-        }
-        setFrames(prev => [...prev, newFrame])
-        addNotification({ type: 'success', message: 'Frame generated successfully!' })
+          aspectRatio,
+        })
+        addNotification({ type: 'success', message: 'Frame generated and saved!' })
       }
     } catch (error) {
       console.error('Generation error:', error)
@@ -122,10 +128,10 @@ export function FramesPage() {
     } finally {
       setIsGenerating(false)
     }
-  }, [prompt, sourceImages, aspectRatio, frames.length, addNotification])
+  }, [prompt, sourceImages, aspectRatio, frames.length, addNotification, currentProject, addFrame])
 
   // Frame actions
-  const handleFrameAction = useCallback((frameId, action) => {
+  const handleFrameAction = useCallback(async (frameId, action) => {
     const frame = frames.find(f => f.id === frameId)
     if (!frame) return
 
@@ -140,19 +146,18 @@ export function FramesPage() {
         addNotification({ type: 'info', message: 'Generate new angles coming soon!' })
         break
       case 'delete':
-        setFrames(prev => prev.filter(f => f.id !== frameId))
+        await deleteFrame(frameId)
+        addNotification({ type: 'success', message: 'Frame deleted' })
         break
       default:
         break
     }
-  }, [frames, addNotification])
+  }, [frames, addNotification, deleteFrame])
 
-  // Update frame properties (name, notes, position)
-  const updateFrame = useCallback((frameId, updates) => {
-    setFrames(prev => prev.map(f =>
-      f.id === frameId ? { ...f, ...updates } : f
-    ))
-  }, [])
+  // Update frame properties (name, notes) - wrapper for store method
+  const handleUpdateFrame = useCallback(async (frameId, updates) => {
+    await updateFrame(frameId, updates)
+  }, [updateFrame])
 
   // Drag handlers for moving frames on canvas
   const handleDragStart = useCallback((e, frameId) => {
@@ -174,7 +179,9 @@ export function FramesPage() {
     setDraggingFrameId(frameId)
     setSelectedFrameId(frameId)
 
-    // Attach listeners immediately on mousedown
+    // Track position during drag locally for smooth UI
+    let currentPosition = { ...frame.position }
+
     const handleMouseMove = (moveEvent) => {
       if (!draggingFrameIdRef.current || !canvasRef.current) return
 
@@ -185,26 +192,40 @@ export function FramesPage() {
       const newX = moveEvent.clientX - canvasRect.left + scrollLeft - dragOffsetRef.current.x
       const newY = moveEvent.clientY - canvasRect.top + scrollTop - dragOffsetRef.current.y
 
-      const boundedX = Math.max(0, newX)
-      const boundedY = Math.max(0, newY)
+      currentPosition = {
+        x: Math.max(0, newX),
+        y: Math.max(0, newY),
+      }
 
-      setFrames(prev => prev.map(f =>
-        f.id === draggingFrameIdRef.current
-          ? { ...f, position: { x: boundedX, y: boundedY } }
-          : f
-      ))
+      // Update local state for smooth dragging
+      setLocalFramePositions(prev => ({
+        ...prev,
+        [frameId]: currentPosition,
+      }))
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = async () => {
+      const draggedFrameId = draggingFrameIdRef.current
       draggingFrameIdRef.current = null
       setDraggingFrameId(null)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+
+      // Save final position to database
+      if (draggedFrameId && currentPosition) {
+        await updateFrame(draggedFrameId, { position: currentPosition })
+        // Clear local position after save
+        setLocalFramePositions(prev => {
+          const next = { ...prev }
+          delete next[draggedFrameId]
+          return next
+        })
+      }
     }
 
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-  }, [frames])
+  }, [frames, updateFrame])
 
   // Bring frame to front when selected
   const getFrameZIndex = useCallback((frameId) => {
@@ -339,37 +360,44 @@ export function FramesPage() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Panel className="flex-1 flex flex-col">
           <PanelHeader title="Frame Canvas" />
-          <PanelContent
-            className={`flex-1 relative overflow-auto bg-studio-bg/50 ${draggingFrameId ? 'cursor-grabbing' : ''}`}
-            ref={canvasRef}
-            onClick={() => setSelectedFrameId(null)}
-          >
-            {frames.length === 0 ? (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <EmptyState
-                  icon={Image}
-                  title="No Frames Yet"
-                  description="Generate frames using Nano Banana Pro Edit to see them here."
-                />
-              </div>
-            ) : (
-              <div className="min-h-[2000px] min-w-[2000px] p-4 relative">
-                {frames.map(frame => (
-                  <FrameCard
-                    key={frame.id}
-                    frame={frame}
-                    isSelected={selectedFrameId === frame.id}
-                    isDragging={draggingFrameId === frame.id}
-                    zIndex={getFrameZIndex(frame.id)}
-                    onSelect={() => setSelectedFrameId(frame.id)}
-                    onMagnify={() => setMagnifiedFrameId(frame.id)}
-                    onUpdate={(updates) => updateFrame(frame.id, updates)}
-                    onAction={(action) => handleFrameAction(frame.id, action)}
-                    onDragStart={(e) => handleDragStart(e, frame.id)}
+          <PanelContent className="flex-1 relative overflow-hidden">
+            {/* Canvas container with ref for drag calculations */}
+            <div
+              ref={canvasRef}
+              className={`absolute inset-0 overflow-auto bg-studio-bg/50 ${draggingFrameId ? 'cursor-grabbing' : ''}`}
+              onClick={() => setSelectedFrameId(null)}
+            >
+              {frames.length === 0 ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <EmptyState
+                    icon={Image}
+                    title="No Frames Yet"
+                    description="Generate frames using Nano Banana Pro Edit to see them here."
                   />
-                ))}
-              </div>
-            )}
+                </div>
+              ) : (
+                <div className="min-h-[2000px] min-w-[2000px] p-4 relative">
+                  {frames.map(frame => {
+                    // Use local position during drag for smooth UI, otherwise use stored position
+                    const effectivePosition = localFramePositions[frame.id] || frame.position
+                    return (
+                      <FrameCard
+                        key={frame.id}
+                        frame={{ ...frame, position: effectivePosition }}
+                        isSelected={selectedFrameId === frame.id}
+                        isDragging={draggingFrameId === frame.id}
+                        zIndex={getFrameZIndex(frame.id)}
+                        onSelect={() => setSelectedFrameId(frame.id)}
+                        onMagnify={() => setMagnifiedFrameId(frame.id)}
+                        onUpdate={(updates) => handleUpdateFrame(frame.id, updates)}
+                        onAction={(action) => handleFrameAction(frame.id, action)}
+                        onDragStart={(e) => handleDragStart(e, frame.id)}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </PanelContent>
         </Panel>
       </div>
@@ -443,10 +471,13 @@ function FrameCard({ frame, isSelected, isDragging, zIndex, onSelect, onMagnify,
         onSelect()
       }}
       onMouseDown={(e) => {
+        console.log('FrameCard mousedown, target:', e.target.tagName, e.target.className)
         // Don't start drag if clicking on buttons or inputs
         if (e.target.closest('button') || e.target.closest('input') || e.target.closest('textarea')) {
+          console.log('Skipping drag - clicked on button/input')
           return
         }
+        console.log('Calling onDragStart')
         onDragStart(e)
       }}
     >
